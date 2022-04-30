@@ -17,7 +17,7 @@ import (
 	"github.com/traefik/traefik/v2/pkg/log"
 	"github.com/traefik/traefik/v2/pkg/metrics"
 	"github.com/traefik/traefik/v2/pkg/safe"
-	"github.com/vulcand/oxy/roundrobin"
+	rr "github.com/traefik/traefik/v2/pkg/server/service/roundrobin"
 )
 
 const (
@@ -34,7 +34,7 @@ var (
 type Balancer interface {
 	Servers() []*url.URL
 	RemoveServer(u *url.URL) error
-	UpsertServer(u *url.URL, options ...roundrobin.ServerOption) error
+	UpsertServer(u *url.URL, options ...rr.ServerOption) error
 }
 
 // BalancerHandler includes functionality for load-balancing management.
@@ -169,7 +169,7 @@ func (hc *HealthCheck) checkServersLB(ctx context.Context, backend *BackendConfi
 		if err := checkHealth(disabledURL.url, backend); err == nil {
 			logger.Warnf("Health check up: returning to server list. Backend: %q URL: %q Weight: %d",
 				backend.name, disabledURL.url.String(), disabledURL.weight)
-			if err = backend.LB.UpsertServer(disabledURL.url, roundrobin.Weight(disabledURL.weight)); err != nil {
+			if err = backend.LB.UpsertServer(disabledURL.url, rr.Weight(disabledURL.weight)); err != nil {
 				logger.Error(err)
 			}
 			serverUpMetricValue = 1
@@ -189,7 +189,7 @@ func (hc *HealthCheck) checkServersLB(ctx context.Context, backend *BackendConfi
 
 		if err := checkHealth(enabledURL, backend); err != nil {
 			weight := 1
-			rr, ok := backend.LB.(*roundrobin.RoundRobin)
+			rr, ok := backend.LB.(*rr.RoundRobin)
 			if ok {
 				var gotWeight bool
 				weight, gotWeight = rr.ServerWeight(enabledURL)
@@ -347,7 +347,7 @@ func (lb *LbStatusUpdater) RemoveServer(u *url.URL) error {
 
 // UpsertServer adds the given server to the BalancerHandler,
 // and updates the status of the server to "UP".
-func (lb *LbStatusUpdater) UpsertServer(u *url.URL, options ...roundrobin.ServerOption) error {
+func (lb *LbStatusUpdater) UpsertServer(u *url.URL, options ...rr.ServerOption) error {
 	ctx := context.TODO()
 	upBefore := len(lb.BalancerHandler.Servers()) > 0
 	err := lb.BalancerHandler.UpsertServer(u, options...)
@@ -398,7 +398,7 @@ func (b Balancers) RemoveServer(u *url.URL) error {
 
 // UpsertServer adds the given server to all the BalancerHandler,
 // and updates the status of the server to "UP".
-func (b Balancers) UpsertServer(u *url.URL, options ...roundrobin.ServerOption) error {
+func (b Balancers) UpsertServer(u *url.URL, options ...rr.ServerOption) error {
 	for _, lb := range b {
 		if err := lb.UpsertServer(u, options...); err != nil {
 			return err

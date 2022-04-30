@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	rr "github.com/traefik/traefik/v2/pkg/server/service/roundrobin"
 	"github.com/traefik/traefik/v2/pkg/testhelpers"
-	"github.com/vulcand/oxy/roundrobin"
 )
 
 func TestEmptyBackendHandler(t *testing.T) {
@@ -68,7 +68,7 @@ func (lb *healthCheckLoadBalancer) RemoveServer(u *url.URL) error {
 	return nil
 }
 
-func (lb *healthCheckLoadBalancer) UpsertServer(u *url.URL, options ...roundrobin.ServerOption) error {
+func (lb *healthCheckLoadBalancer) UpsertServer(u *url.URL, options ...rr.ServerOption) error {
 	return nil
 }
 

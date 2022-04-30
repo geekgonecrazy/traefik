@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/traefik/traefik/v2/pkg/config/runtime"
+	rr "github.com/traefik/traefik/v2/pkg/server/service/roundrobin"
 	"github.com/traefik/traefik/v2/pkg/testhelpers"
-	"github.com/vulcand/oxy/roundrobin"
 )
 
 const (
@@ -370,7 +370,7 @@ type testLoadBalancer struct {
 	numUpsertedServers int
 	servers            []*url.URL
 	// options is just to make sure that LBStatusUpdater forwards options on Upsert to its BalancerHandler
-	options []roundrobin.ServerOption
+	options []rr.ServerOption
 }
 
 func (lb *testLoadBalancer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -385,7 +385,7 @@ func (lb *testLoadBalancer) RemoveServer(u *url.URL) error {
 	return nil
 }
 
-func (lb *testLoadBalancer) UpsertServer(u *url.URL, options ...roundrobin.ServerOption) error {
+func (lb *testLoadBalancer) UpsertServer(u *url.URL, options ...rr.ServerOption) error {
 	lb.Lock()
 	defer lb.Unlock()
 	lb.numUpsertedServers++
@@ -398,7 +398,7 @@ func (lb *testLoadBalancer) Servers() []*url.URL {
 	return lb.servers
 }
 
-func (lb *testLoadBalancer) Options() []roundrobin.ServerOption {
+func (lb *testLoadBalancer) Options() []rr.ServerOption {
 	return lb.options
 }
 
@@ -448,7 +448,7 @@ func TestLBStatusUpdater(t *testing.T) {
 	lbsu := NewLBStatusUpdater(lb, svInfo, nil)
 	newServer, err := url.Parse("http://foo.com")
 	assert.NoError(t, err)
-	err = lbsu.UpsertServer(newServer, roundrobin.Weight(1))
+	err = lbsu.UpsertServer(newServer, rr.Weight(1))
 	assert.NoError(t, err)
 	assert.Equal(t, len(lbsu.Servers()), 1)
 	assert.Equal(t, len(lbsu.BalancerHandler.(*testLoadBalancer).Options()), 1)

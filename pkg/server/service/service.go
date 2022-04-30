@@ -26,6 +26,8 @@ import (
 	"github.com/traefik/traefik/v2/pkg/server/service/loadbalancer/failover"
 	"github.com/traefik/traefik/v2/pkg/server/service/loadbalancer/mirror"
 	"github.com/traefik/traefik/v2/pkg/server/service/loadbalancer/wrr"
+	rr "github.com/traefik/traefik/v2/pkg/server/service/roundrobin"
+	"github.com/traefik/traefik/v2/pkg/server/service/state"
 	"github.com/vulcand/oxy/roundrobin"
 	"github.com/vulcand/oxy/roundrobin/stickycookie"
 )
@@ -369,7 +371,7 @@ func (m *Manager) getLoadBalancer(ctx context.Context, serviceName string, servi
 	logger := log.FromContext(ctx)
 	logger.Debug("Creating load-balancer")
 
-	var options []roundrobin.LBOption
+	var options []rr.LBOption
 
 	var cookieName string
 	if service.Sticky != nil && service.Sticky.Cookie != nil {
@@ -387,26 +389,34 @@ func (m *Manager) getLoadBalancer(ctx context.Context, serviceName string, servi
 			return nil, err
 		}
 
-		options = append(options, roundrobin.EnableStickySession(roundrobin.NewStickySessionWithOptions(cookieName, opts).SetCookieValue(cv)))
+		options = append(options, rr.EnableStickySession(roundrobin.NewStickySessionWithOptions(cookieName, opts).SetCookieValue(cv)))
 
 		logger.Debugf("Sticky session cookie name: %v", cookieName)
 	}
 
-	lb, err := roundrobin.New(fwd, options...)
-	if err != nil {
-		return nil, err
+	if _, ok := state.LoadBalancer[serviceName]; !ok {
+		lb, err := rr.New(fwd, options...)
+		if err != nil {
+			return nil, err
+		}
+
+		lbsu := healthcheck.NewLBStatusUpdater(lb, m.configs[serviceName], service.HealthCheck)
+
+		state.LoadBalancer[serviceName] = lbsu
 	}
 
-	lbsu := healthcheck.NewLBStatusUpdater(lb, m.configs[serviceName], service.HealthCheck)
-	if err := m.upsertServers(ctx, lbsu, service.Servers); err != nil {
+	if err := m.upsertServers(ctx, state.LoadBalancer[serviceName], service.Servers); err != nil {
 		return nil, fmt.Errorf("error configuring load balancer for service %s: %w", serviceName, err)
 	}
 
-	return lbsu, nil
+	return state.LoadBalancer[serviceName], nil
 }
 
 func (m *Manager) upsertServers(ctx context.Context, lb healthcheck.BalancerHandler, servers []dynamic.Server) error {
 	logger := log.FromContext(ctx)
+
+	oldServers := lb.Servers()
+	newServers := []*url.URL{}
 
 	for name, srv := range servers {
 		u, err := url.Parse(srv.URL)
@@ -414,14 +424,35 @@ func (m *Manager) upsertServers(ctx context.Context, lb healthcheck.BalancerHand
 			return fmt.Errorf("error parsing server URL %s: %w", srv.URL, err)
 		}
 
+		newServers = append(newServers, u)
+
 		logger.WithField(log.ServerName, name).Debugf("Creating server %d %s", name, u)
 
-		if err := lb.UpsertServer(u, roundrobin.Weight(1)); err != nil {
+		if err := lb.UpsertServer(u, rr.Weight(1)); err != nil {
 			return fmt.Errorf("error adding server %s to load balancer: %w", srv.URL, err)
 		}
 
 		// FIXME Handle Metrics
 	}
+
+	for _, server := range oldServers {
+		found := false
+
+		for _, s := range newServers {
+			if s.String() == server.String() {
+				found = true
+			}
+		}
+
+		if !found {
+			logger.WithField(log.ServerName, server).Debugf("Removing server %s", server)
+
+			if err := lb.RemoveServer(server); err != nil {
+				return fmt.Errorf("error removing server %s from load balancer: %w", server, err)
+			}
+		}
+	}
+
 	return nil
 }
 
